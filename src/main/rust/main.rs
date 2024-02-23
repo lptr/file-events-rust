@@ -1,3 +1,4 @@
+use std::io;
 // This is the interface to the JVM that we'll call the majority of our
 // methods on.
 use jni::JNIEnv;
@@ -11,6 +12,10 @@ use jni::objects::{JClass, JString};
 // can't return one of the objects with lifetime information because the
 // lifetime checker won't let us.
 use jni::sys::jstring;
+
+use std::path::Path;
+use notify::{Watcher, RecursiveMode};
+
 
 // This keeps Rust from "mangling" the name and making it unique for this
 // crate.
@@ -29,6 +34,23 @@ pub extern "system" fn Java_org_gradle_test_FileEvents_hello<'local>(
     // in the `strings` module.
     let output = env.new_string(format!("Hellő, {}!", input))
         .expect("Couldn't create java string!");
+
+
+    println!("Starting watcher in {}", Path::new(".").canonicalize().unwrap().display());
+    // Automatically select the best implementation for your platform.
+    let mut watcher = notify::recommended_watcher(|res| {
+        match res {
+            Ok(event) => println!("event: {:?}", event),
+            Err(e) => println!("watch error: {:?}", e),
+        }
+    }).unwrap();
+
+    // Add a path to be watched. All files and directories at that path and
+    // below will be monitored for changes.
+    watcher.watch(Path::new("."), RecursiveMode::Recursive).unwrap();
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
 
     // Finally, extract the raw pointer to return.
     output.into_raw()
