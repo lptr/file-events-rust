@@ -13,3 +13,15 @@ crossbeam-channel = "0.5.11"
 [lib]
 crate_type = ["cdylib"]
 path = "src/main/rust/main.rs"
+
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+# Strip doesn't seem to work with crossbeam on any platforms
+# But running strip maually does the job anyway
+#strip = true
