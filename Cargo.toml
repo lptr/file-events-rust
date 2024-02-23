@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 jni = "0.21.1"
 notify = "6.1.1"
+crossbeam-channel = "0.5.11"
 
 [lib]
 crate_type = ["cdylib"]

@@ -1,6 +1,6 @@
-use std::io;
 use std::path::Path;
 
+use crossbeam_channel::{bounded, Receiver, Sender};
 use jni::JNIEnv;
 use jni::objects::{JClass, JObject, JValue};
 use notify::{Event, RecursiveMode, Watcher};
@@ -9,33 +9,26 @@ use notify::{Event, RecursiveMode, Watcher};
 // crate.
 #[no_mangle]
 pub extern "system" fn Java_org_gradle_test_FileEvents_runLoop<'local>(
-    env: JNIEnv<'local>,
+    mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     queue: JObject,
 ) {
     println!("Starting watcher in {}", Path::new(".").canonicalize().unwrap().display());
 
-    // Create a global reference to the queue object to use it inside the closure
-    let queue_global_ref = env.new_global_ref(queue)
-        .expect("Couldn't create global ref for queue");
-    let jvm = env.get_java_vm().expect("Couldn't get JVM");
+    let (sender, receiver): (Sender<String>, Receiver<String>) = bounded(100);
 
     // Automatically select the best implementation for your platform.
     let mut watcher = notify::recommended_watcher(move |res: Result<Event, _>| {
         match res {
             Ok(event) => {
                 println!("event: {:?}", event);
-                let mut env = jvm.attach_current_thread().expect("Failed to attach current thread");
-                for path_buf in event.paths {
-                    if let Ok(path_str) = path_buf.into_os_string().into_string() {
-                        let jstr_path = env.new_string(path_str)
-                            .expect("Couldn't create java string!");
-                        env.call_method(&queue_global_ref, "put", "(Ljava/lang/Object;)V", &[JValue::Object(jstr_path.as_ref())])
-                            .expect("Could not call put method on BlockingQueue");
+                for path in event.paths {
+                    if let Ok(path_str) = path.into_os_string().into_string() {
+                        if sender.send(path_str).is_err() {
+                            println!("Channel send error");
+                            break;
+                        }
                     }
-                }
-                unsafe {
-                    jvm.detach_current_thread();
                 }
             }
             Err(e) => println!("watch error: {:?}", e),
@@ -46,8 +39,12 @@ pub extern "system" fn Java_org_gradle_test_FileEvents_runLoop<'local>(
     // below will be monitored for changes.
     watcher.watch(Path::new("."), RecursiveMode::Recursive).unwrap();
 
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).unwrap();
-
-    println!("Finished watcher in {}", Path::new(".").canonicalize().unwrap().display());
+    // Processing loop
+    for path_str in receiver {
+        // Convert to Java string and call the queue's put method
+        let jstr_path = env.new_string(&path_str)
+            .expect("Couldn't create java string!");
+        env.call_method(&queue, "put", "(Ljava/lang/Object;)V", &[JValue::Object(jstr_path.as_ref())])
+            .expect("Could not call put method on BlockingQueue");
+    }
 }
