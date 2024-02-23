@@ -1,6 +1,7 @@
 package org.gradle.test;
 
-public class FileEvents {
-    public static native String hello(String input);
-}
+import java.util.concurrent.BlockingQueue;
 
+public class FileEvents {
+    public static native void runLoop(BlockingQueue<String> queue);
+}

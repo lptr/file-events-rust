@@ -5,6 +5,8 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 public class Main {
     public static void main(String[] args) throws IOException {
@@ -25,7 +27,29 @@ public class Main {
     }
 
     private static void runWithNativeLibraryLoaded() {
-        String output = FileEvents.hello("Dezső");
-        System.out.println(output);
+        BlockingQueue<String> paths = new LinkedBlockingQueue<>();
+        Thread watcherThread = new Thread(() -> {
+            FileEvents.runLoop(paths);
+            try {
+                paths.put("");
+            } catch (InterruptedException ignored) {
+                // ignore
+            }
+        }, "watcher");
+        watcherThread.start();
+        while (true) {
+            String path;
+            try {
+                path = paths.take();
+            } catch (InterruptedException ignored) {
+                System.out.println("Interrupted");
+                break;
+            }
+            if (path.isBlank()) {
+                break;
+            }
+            System.out.println(" - File event from RUST: " + path);
+        }
+        System.out.println("Finished on Java side");
     }
 }

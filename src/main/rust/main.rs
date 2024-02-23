@@ -1,46 +1,43 @@
 use std::io;
-// This is the interface to the JVM that we'll call the majority of our
-// methods on.
-use jni::JNIEnv;
-
-// These objects are what you should use as arguments to your native
-// function. They carry extra lifetime information to prevent them escaping
-// this context and getting used after being GC'd.
-use jni::objects::{JClass, JString};
-
-// This is just a pointer. We'll be returning it from our function. We
-// can't return one of the objects with lifetime information because the
-// lifetime checker won't let us.
-use jni::sys::jstring;
-
 use std::path::Path;
-use notify::{Watcher, RecursiveMode};
 
+use jni::JNIEnv;
+use jni::objects::{JClass, JObject, JValue};
+use notify::{Event, RecursiveMode, Watcher};
 
 // This keeps Rust from "mangling" the name and making it unique for this
 // crate.
 #[no_mangle]
-pub extern "system" fn Java_org_gradle_test_FileEvents_hello<'local>(
-    mut env: JNIEnv<'local>,
+pub extern "system" fn Java_org_gradle_test_FileEvents_runLoop<'local>(
+    env: JNIEnv<'local>,
     _class: JClass<'local>,
-    input: JString<'local>,
-) -> jstring {
-    // First, we have to get the string out of Java. Check out the `strings`
-    // module for more info on how this works.
-    let input: String =
-        env.get_string(&input).expect("Couldn't get java string!").into();
-
-    // Then we have to create a new Java string to return. Again, more info
-    // in the `strings` module.
-    let output = env.new_string(format!("Hellő, {}!", input))
-        .expect("Couldn't create java string!");
-
-
+    queue: JObject,
+) {
     println!("Starting watcher in {}", Path::new(".").canonicalize().unwrap().display());
+
+    // Create a global reference to the queue object to use it inside the closure
+    let queue_global_ref = env.new_global_ref(queue)
+        .expect("Couldn't create global ref for queue");
+    let jvm = env.get_java_vm().expect("Couldn't get JVM");
+
     // Automatically select the best implementation for your platform.
-    let mut watcher = notify::recommended_watcher(|res| {
+    let mut watcher = notify::recommended_watcher(move |res: Result<Event, _>| {
         match res {
-            Ok(event) => println!("event: {:?}", event),
+            Ok(event) => {
+                println!("event: {:?}", event);
+                let mut env = jvm.attach_current_thread().expect("Failed to attach current thread");
+                for path_buf in event.paths {
+                    if let Ok(path_str) = path_buf.into_os_string().into_string() {
+                        let jstr_path = env.new_string(path_str)
+                            .expect("Couldn't create java string!");
+                        env.call_method(&queue_global_ref, "put", "(Ljava/lang/Object;)V", &[JValue::Object(jstr_path.as_ref())])
+                            .expect("Could not call put method on BlockingQueue");
+                    }
+                }
+                unsafe {
+                    jvm.detach_current_thread();
+                }
+            }
             Err(e) => println!("watch error: {:?}", e),
         }
     }).unwrap();
@@ -52,6 +49,5 @@ pub extern "system" fn Java_org_gradle_test_FileEvents_hello<'local>(
     let mut input = String::new();
     io::stdin().read_line(&mut input).unwrap();
 
-    // Finally, extract the raw pointer to return.
-    output.into_raw()
+    println!("Finished watcher in {}", Path::new(".").canonicalize().unwrap().display());
 }
